@@ -1,6 +1,7 @@
 mod renderer;
-mod game;
+pub mod game;
 
+use game::GameHandler;
 use renderer::State;
 use std::sync::Arc;
 
@@ -13,18 +14,26 @@ use winit::{
 
 use std::time::{Instant};
 
-pub struct App {
+pub struct App<T>
+    where T: GameHandler
+{
     state: Option<State>,
-    last_frame_time: Instant
+    last_frame_time: Instant,
+    game: T
 }
 
-impl Default for App{
-    fn default() -> Self {
-        Self { state: None, last_frame_time: Instant::now() }
+
+impl<T> App<T>
+    where T: GameHandler
+{
+    pub fn new(game: T) -> Self{
+        Self { state: None, last_frame_time: Instant::now(), game }
     }
 }
 
-impl ApplicationHandler for App {
+impl<T> ApplicationHandler for App<T>
+    where T: GameHandler
+{
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // Create window object
         let window = Arc::new(
@@ -36,6 +45,7 @@ impl ApplicationHandler for App {
         let state = pollster::block_on(State::new(window.clone()));
         self.state = Some(state);
         self.last_frame_time = Instant::now();
+        self.game.on_start();
 
         window.request_redraw();
     }
@@ -50,6 +60,7 @@ impl ApplicationHandler for App {
         let state = self.state.as_mut().unwrap();
         state.input(&event);
         state.update(delta_time_secs);
+        self.game.update(delta_time_secs);
         match event {
             WindowEvent::CloseRequested => {
                 println!("The close button was pressed; stopping");

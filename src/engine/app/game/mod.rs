@@ -1,4 +1,4 @@
 pub trait GameHandler{
-    fn start();
-    fn update(dt: f32);
+    fn on_start(&self);
+    fn update(&self, dt: f32);
 }
