@@ -1,140 +1,22 @@
 pub mod texture;
+pub mod egui_tools;
+mod render_data;
 mod camera;
-mod egui_tools;
-
-use egui_tools::EguiRenderer;
 
 use std::{env, sync::Arc};
 use winit::{
     event::WindowEvent, window::Window
 };
-
-use ::egui::FontDefinitions;
-
 use cgmath::prelude::*;
-
-/// A custom event type for the winit app.
-enum Event {
-    RequestRedraw,
-}
-
-/// This is the repaint signal type that egui needs for requesting a repaint from another thread.
-/// It sends the custom RequestRedraw event to the winit event loop.
-struct ExampleRepaintSignal(std::sync::Mutex<winit::event_loop::EventLoopProxy<Event>>);
-
-impl epi::backend::RepaintSignal for ExampleRepaintSignal {
-    fn request_repaint(&self) {
-        self.0.lock().unwrap().send_event(Event::RequestRedraw).ok();
-    }
-}
-
 use wgpu::util::DeviceExt;
-
 use egui_wgpu::{wgpu, ScreenDescriptor};
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    tex_coords: [f32; 2],
-}
-
-impl Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                }
-            ]
-        }
-    }
-}
- 
-// lib.rs
-const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.5, -0.5, 0.0], tex_coords: [0.0, 1.0] },
-    Vertex { position: [0.5, -0.5, 0.0], tex_coords: [1.0, 1.0] },
-    Vertex { position: [0.5, 0.5, 0.0], tex_coords: [1.0, 0.0] },
-    Vertex { position: [-0.5, 0.5, 0.0], tex_coords: [0.0, 0.0] },
-];
-
-const INDICES: &[u16] = &[
-    0, 1, 2,
-    2, 3, 0
-];
-
-struct Instance {
-    position: cgmath::Vector3<f32>,
-    rotation: cgmath::Quaternion<f32>,
-}
-
-impl Instance {
-    fn to_raw(&self) -> InstanceRaw {
-        InstanceRaw {
-            model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)).into(),
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct InstanceRaw {
-    model: [[f32; 4]; 4],
-}
-
-impl InstanceRaw {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
-            // We need to switch from using a step mode of Vertex to Instance
-            // This means that our shaders will only change to use the next
-            // instance when the shader starts processing a new instance
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
-                // for each vec4. We'll have to reassemble the mat4 in the shader.
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    // While our vertex shader only uses locations 0, and 1 now, in later tutorials, we'll
-                    // be using 2, 3, and 4, for Vertex. We'll start at slot 5, not conflict with them later
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
-                    shader_location: 6,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 7,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
-                    shader_location: 8,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-            ],
-        }
-    }
-}
+use egui_tools::EguiRenderer;
+use render_data::{Instance, Vertex, InstanceRaw, RECTANGLE_INDICES, RECTANGLE_VERTICES};
 
 
-const NUM_INSTANCES_PER_ROW: u32 = 10;
+const NUM_INSTANCES_PER_ROW: u32 = 1;
 const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(NUM_INSTANCES_PER_ROW as f32 * 0.5, NUM_INSTANCES_PER_ROW as f32 * 0.5, 0.0);
-
 
 pub struct State {
     window: Arc<Window>,
@@ -149,6 +31,7 @@ pub struct State {
     num_indices: u32,
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
     camera: camera::Camera,
     camera_uniform: camera::CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -173,17 +56,19 @@ impl State {
             .await
             .unwrap();
 
-        let size = window.inner_size();
+        let limits = device.limits();
+        println!(
+            "Max sampled textures per shader stage: {}",
+            limits.max_sampled_textures_per_shader_stage
+        );
 
+        let size = window.inner_size();
 
         let surface = instance.create_surface(window.clone()).unwrap();
         let cap = surface.get_capabilities(&adapter);
         let surface_format = cap.formats[0];
 
         let egui_renderer = EguiRenderer::new(&device, surface_format, None, 1, &window);
-
-        let diffuse_bytes = include_bytes!("../../../2.png");
-        let diffuse_texture = texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "2.png").unwrap();
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -210,6 +95,9 @@ impl State {
                 label: Some("texture_bind_group_layout"),
             });
 
+            let diffuse_bytes = include_bytes!("../../../2.png");
+            let diffuse_texture = texture::Texture::from_bytes(&device, &queue, diffuse_bytes, &texture_bind_group_layout, "2.png").unwrap();
+
             let diffuse_bind_group = device.create_bind_group(
                 &wgpu::BindGroupDescriptor {
                     layout: &texture_bind_group_layout,
@@ -230,7 +118,7 @@ impl State {
         let vertex_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(VERTICES),
+                contents: bytemuck::cast_slice(RECTANGLE_VERTICES),
                 usage: wgpu::BufferUsages::VERTEX,
             }
         );
@@ -238,17 +126,22 @@ impl State {
         let index_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(INDICES),
+                contents: bytemuck::cast_slice(RECTANGLE_INDICES),
                 usage: wgpu::BufferUsages::INDEX,
             }
         );
 
-        let num_indices = INDICES.len() as u32;
+        let num_indices = RECTANGLE_INDICES.len() as u32;
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../../shader.wgsl").into()),
         });
+
+
+        /////////////////////////////////////////
+        // Camera
+        /////////////////////////////////////////
 
         let camera = camera::Camera {
             position: cgmath::Point3 { x: 0.0, y: 0.0, z: 0.0 },
@@ -297,6 +190,11 @@ impl State {
 
         let camera_controller = camera::CameraController::new();
 
+        /////////////////////////////////////////
+        /////////////////////////////////////////
+        /////////////////////////////////////////
+
+
          let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|y| {
             (0..NUM_INSTANCES_PER_ROW).map(move |x| {
                 let position = cgmath::Vector3 { x: x as f32, y: y as f32, z: 0.0} - INSTANCE_DISPLACEMENT;
@@ -323,7 +221,6 @@ impl State {
                 usage: wgpu::BufferUsages::VERTEX,
             }
         );
-
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -397,6 +294,7 @@ impl State {
             camera_buffer,
             camera_bind_group,
             camera_controller,
+            texture_bind_group_layout,
             instances,
             instance_buffer,
             egui_renderer,
@@ -435,8 +333,9 @@ impl State {
         self.configure_surface();
     }
 
-    pub fn render(&mut self) {
-        // Create texture view
+    pub fn render<T>(&mut self, mut egui_render_func: T)
+    where T: FnMut(&EguiRenderer) -> ()
+    {
         let surface_texture = self
             .surface
             .get_current_texture()
@@ -450,9 +349,7 @@ impl State {
                 ..Default::default()
             });
 
-        // Renders a GREEN screen
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        // Create the renderpass which will clear the screen.
         let mut renderpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -468,7 +365,6 @@ impl State {
             occlusion_query_set: None,
         });
 
-        // If you wanted to call any drawing commands, they would go here.
         renderpass.set_pipeline(&self.render_pipeline); // 2.
         renderpass.set_bind_group(0, &self.diffuse_bind_group, &[]);
         renderpass.set_bind_group(1, &self.camera_bind_group, &[]);
@@ -478,44 +374,22 @@ impl State {
 
         renderpass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
  
-        // End the renderpass.
         drop(renderpass);
 
+        /////////////////////////////////////
+        // EGUI
+        /////////////////////////////////////
 
         {
             self.egui_renderer.begin_frame(&self.window);
 
-            egui::Window::new("winit + egui + wgpu says hello!")
-                .resizable(true)
-                .vscroll(true)
-                .default_open(false)
-                .show(self.egui_renderer.context(), |ui| {
-                    ui.label("Label!");
+            egui_render_func(&self.egui_renderer);
 
-                    if ui.button("Button!").clicked() {
-                        println!("boom!")
-                    }
-
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        ui.label(format!(
-                            "Pixels per point: {}",
-                            self.egui_renderer.context().pixels_per_point()
-                        ));
-                        if ui.button("-").clicked() {
-                            self.scale_factor = (self.scale_factor - 0.1).max(0.3);
-                        }
-                        if ui.button("+").clicked() {
-                            self.scale_factor = (self.scale_factor + 0.1).min(3.0);
-                        }
-                    });
-                });
-
-        let screen_descriptor = ScreenDescriptor {
-            size_in_pixels: [self.size.width, self.size.height],
-            pixels_per_point: self.window.scale_factor() as f32
-                * self.scale_factor,
-        };
+            let screen_descriptor = ScreenDescriptor {
+                size_in_pixels: [self.size.width, self.size.height],
+                pixels_per_point: self.window.scale_factor() as f32
+                    * self.scale_factor,
+            };
 
             self.egui_renderer.end_frame_and_draw(
                 &self.device,
@@ -527,7 +401,10 @@ impl State {
             );
         }
 
-        // Submit the command in the queue to execute
+        /////////////////////////////////////
+        /////////////////////////////////////
+        /////////////////////////////////////
+
         self.queue.submit([encoder.finish()]);
         self.window.pre_present_notify();
         surface_texture.present();
@@ -537,10 +414,9 @@ impl State {
         let exe_path = env::current_exe().expect("Failed to get executable path");
         let exe_dir = exe_path.parent().expect("Executable has no parent directory");
         let path = exe_dir.join(path);
-        println!("{:?}", path);
         let data = std::fs::read(path).unwrap();
         let texture_bytes = data.as_slice();
-        let texture = texture::Texture::from_bytes(&self.device, &self.queue, texture_bytes, name).unwrap();
+        let texture = texture::Texture::from_bytes(&self.device, &self.queue, texture_bytes, &self.texture_bind_group_layout, name).unwrap();
         return texture;
     }
 

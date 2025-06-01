@@ -7,6 +7,7 @@ pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
+    pub bind_group: wgpu::BindGroup
 }
 
 impl Texture {
@@ -14,16 +15,18 @@ impl Texture {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         bytes: &[u8], 
+        layout: &wgpu::BindGroupLayout,
         label: &str
     ) -> Result<Self> {
         let img = image::load_from_memory(bytes)?;
-        Self::from_image(device, queue, &img, Some(label))
+        Self::from_image(device, queue, &img, layout, Some(label))
     }
 
     pub fn from_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         img: &image::DynamicImage,
+        layout: &wgpu::BindGroupLayout,
         label: Option<&str>
     ) -> Result<Self> {
         let rgba = img.to_rgba8();
@@ -76,6 +79,23 @@ impl Texture {
             }
         );
 
-        Ok(Self { texture, view, sampler })
+        let bind_group = device.create_bind_group(
+                &wgpu::BindGroupDescriptor {
+                    layout: layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        }
+                    ],
+                    label: Some("diffuse_bind_group"),
+                }
+            );
+
+        Ok(Self { texture, view, sampler, bind_group})
     }
 }
