@@ -1,9 +1,12 @@
 mod renderer;
 pub mod game;
+pub mod texture_manager;
 
 use game::GameHandler;
+use hecs::Ref;
 use renderer::State;
-use std::sync::Arc;
+use std::{cell::RefCell, rc::Rc, sync::{Arc, Mutex}};
+use crate::engine::app::texture_manager::TextureManager;
 
 use winit::{
     application::ApplicationHandler,
@@ -14,12 +17,29 @@ use winit::{
 
 use std::time::{Instant};
 
+pub struct GameManager{
+    state: Rc<RefCell<State>>,
+    pub texture_manager: TextureManager,
+}
+
+impl GameManager{
+    fn new(state: Rc<RefCell<State>>) -> Self{
+        let texture_manager = TextureManager::new(state.clone());
+
+        Self {
+            state,
+            texture_manager
+        }
+    }
+}
+
 pub struct App<T>
     where T: GameHandler
 {
-    state: Option<State>,
+    state: Option<Rc<RefCell<State>>>,
     last_frame_time: Instant,
-    game: T
+    game: T,
+    game_manager: Option<GameManager>
 }
 
 
@@ -27,7 +47,7 @@ impl<T> App<T>
     where T: GameHandler
 {
     pub fn new(game: T) -> Self{
-        Self { state: None, last_frame_time: Instant::now(), game }
+        Self { state: None, game_manager: None, last_frame_time: Instant::now(), game }
     }
 }
 
@@ -42,10 +62,12 @@ impl<T> ApplicationHandler for App<T>
                 .unwrap(),
         );
 
-        let state = pollster::block_on(State::new(window.clone()));
+        let state = Rc::new(RefCell::new(pollster::block_on(State::new(window.clone()))));
+        self.game_manager = Some(GameManager::new(state.clone()));
         self.state = Some(state);
         self.last_frame_time = Instant::now();
-        self.game.on_start();
+        let gm = self.game_manager.as_mut().unwrap();
+        self.game.on_start(gm);
 
         window.request_redraw();
     }
@@ -57,10 +79,14 @@ impl<T> ApplicationHandler for App<T>
         
         // Convert to seconds as f32 (common in game engines)
         let delta_time_secs = delta_time.as_secs_f32();
+
+        let gm = self.game_manager.as_mut().unwrap();
+        self.game.update(gm, delta_time_secs);
+
         let state = self.state.as_mut().unwrap();
+        let mut state = state.borrow_mut();
         state.input(&event);
         state.update(delta_time_secs);
-        self.game.update(delta_time_secs);
         match event {
             WindowEvent::CloseRequested => {
                 println!("The close button was pressed; stopping");

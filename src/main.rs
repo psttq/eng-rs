@@ -1,6 +1,7 @@
 mod engine;
-use engine::app::App;
+use engine::app::{App, GameManager};
 use engine::app::game::GameHandler;
+use engine::app::game::components;
 
 use hecs::World;
 
@@ -19,11 +20,13 @@ impl Game{
 }
 
 impl GameHandler for Game{
-    fn on_start(&self) {
-        
+    fn on_start(&mut self, gm: &mut GameManager) {
+        let texture = gm.texture_manager.load_texture("player", "2.png").unwrap();
+        let sprite = components::sprite::Sprite{texture};
+        self.world.spawn(("Label", sprite));
     }
 
-    fn update(&self, dt: f32) {
+    fn update(&mut self, gm: &mut GameManager, dt: f32) {
     }
 }
 

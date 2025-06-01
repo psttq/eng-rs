@@ -1,10 +1,10 @@
-mod texture;
+pub mod texture;
 mod camera;
 mod egui_tools;
 
 use egui_tools::EguiRenderer;
 
-use std::sync::Arc;
+use std::{env, sync::Arc};
 use winit::{
     event::WindowEvent, window::Window
 };
@@ -531,6 +531,17 @@ impl State {
         self.queue.submit([encoder.finish()]);
         self.window.pre_present_notify();
         surface_texture.present();
+    }
+
+    pub fn load_texture(&self, name: &str, path: &str) -> texture::Texture{
+        let exe_path = env::current_exe().expect("Failed to get executable path");
+        let exe_dir = exe_path.parent().expect("Executable has no parent directory");
+        let path = exe_dir.join(path);
+        println!("{:?}", path);
+        let data = std::fs::read(path).unwrap();
+        let texture_bytes = data.as_slice();
+        let texture = texture::Texture::from_bytes(&self.device, &self.queue, texture_bytes, name).unwrap();
+        return texture;
     }
 
     pub fn input(&mut self, event: &WindowEvent) {
