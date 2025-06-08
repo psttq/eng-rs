@@ -2,18 +2,16 @@ pub mod renderer;
 pub mod game;
 pub mod texture_manager;
 
+use egui::{Color32, Frame};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 use game::{components::Label, GameHandler};
 use hecs::{Entity, World};
 use renderer::State;
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{cell::RefCell, fmt::format, rc::Rc, sync::Arc};
 use crate::engine::app::{game::components::{self, Script, TransformComponent}, renderer::egui_tools::EguiRenderer, texture_manager::TextureManager};
 
 use winit::{
-    application::ApplicationHandler,
-    event::{ElementState, MouseButton, WindowEvent},
-    event_loop::ActiveEventLoop,
-    window::{Window, WindowId}
+    application::ApplicationHandler, dpi::PhysicalSize, event::{ElementState, MouseButton, WindowEvent}, event_loop::ActiveEventLoop, window::{Window, WindowId}
 };
 
 use std::time::{Instant};
@@ -92,7 +90,7 @@ impl<T> ApplicationHandler for App<T>
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
-                .create_window(Window::default_attributes())
+                .create_window(Window::default_attributes().with_inner_size(PhysicalSize{width: 1920, height: 1080}))
                 .unwrap(),
         );
 
@@ -134,11 +132,14 @@ impl<T> ApplicationHandler for App<T>
             }
             WindowEvent::RedrawRequested => {
                 state.render(|game_mananger: &mut GameManager, renderer| {
-                    egui::Window::new("Objects")
+                    egui::Window::new("Objects").frame(
+        Frame::window(&egui::Style::default()).fill(Color32::from_rgba_premultiplied(0, 0, 0, 100))
+    )
                 .resizable(true)
                 .vscroll(true)
-                .default_open(false)
+                .default_open(true)
                 .show(&renderer.context().clone(), |ui| {
+                        ui.label(format!("fps: {:.2}", 1.0/dt));
                         for (id, label) in &mut game_mananger.world.query::<&components::Label>(){
                             ui.collapsing(format!("id: {}, label: {}", label.id, label.label), |ui|{
                                 let transform = game_mananger.world.get::<&TransformComponent>(id);
@@ -175,7 +176,7 @@ impl<T> ApplicationHandler for App<T>
                                     Ok(script)=>{
                                         ui.collapsing("Script", |ui|{
                                             if ui.button("Edit").clicked(){
-                                                self.script_editting = Some(ScriptEditting { entity: id, script: script.script.clone() });
+                                                self.script_editting = Some(ScriptEditting { entity: id, script: script.get_script() });
                                             }
                                         });
                                     },
@@ -190,24 +191,36 @@ impl<T> ApplicationHandler for App<T>
                     match &mut self.script_editting {
                         Some(script_editting)=>{
                         egui::Window::new("Script")
+                        .frame(
+        Frame::window(&egui::Style::default()).fill(Color32::from_rgba_premultiplied(0, 0, 0, 100))
+    )
                         .resizable(true)
                         .vscroll(true)
-                        .default_open(false)
+                        .default_open(true)
                         .show(&renderer.context().clone(), |ui| {
                             CodeEditor::default()
                                 .id_source("code editor")
                                 .with_rows(12)
-                                .with_fontsize(14.0)
-                                .with_theme(ColorTheme::GRUVBOX)
+                                .with_fontsize(11.0)
+                                .with_theme(ColorTheme::AYU_DARK)
                                 .with_syntax(Syntax::lua())
                                 .with_numlines(true)
                                 .show(ui, &mut script_editting.script);
+                            let mut script = game_mananger.world.get::<&mut components::Script>(script_editting.entity).unwrap();
+
                             if ui.button("Save").clicked(){
-                                let mut script = game_mananger.world.get::<&mut components::Script>(script_editting.entity).unwrap();
-                                script.script = script_editting.script.clone();
+                                script.set_script(script_editting.script.clone());
+                            }
+                            close_clicked = ui.button("Close").clicked();
+                            
+                            match &script.state{
+                                components::ScriptState::Ok => {},
+                                components::ScriptState::Err(e) =>{
+                                    ui.label(e);
+                                }
                             }
 
-                            close_clicked = ui.button("Close").clicked();
+                            
                         });
                         },
                         _ => {}
