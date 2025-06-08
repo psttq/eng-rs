@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::{collections::HashMap, default};
+use std::{collections::HashMap};
 use crate::engine::app::renderer::State;
 
 use crate::engine::app::renderer::texture::Texture;

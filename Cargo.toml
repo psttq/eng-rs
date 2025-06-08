@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
 anyhow = "1.0.98"
 bytemuck = {version = "1.23.0", features=["derive"]}
 cgmath = "0.18.0"
@@ -18,3 +19,6 @@ image = {version = "0.25.6"}
 pollster = "0.4"
 wgpu = "25.0.0"
 winit = { version = "0.30.8", features = ["android-native-activity"] }
+egui_code_editor = { version = "0.2"}
+colorful = "0.2.2"
+log = "0.4.27"

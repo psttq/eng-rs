@@ -3,10 +3,10 @@ pub mod game;
 pub mod texture_manager;
 
 use game::{components::Label, GameHandler};
-use hecs::World;
+use hecs::{Entity, World};
 use renderer::State;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
-use crate::engine::app::texture_manager::TextureManager;
+use crate::engine::app::{game::components::{self, Script, TransformComponent}, texture_manager::TextureManager};
 
 use winit::{
     application::ApplicationHandler,
@@ -20,7 +20,7 @@ use std::time::{Instant};
 pub struct GameManager{
     state: Rc<RefCell<State>>,
     pub texture_manager: TextureManager,
-    world: World
+    pub world: World
 }
 
 impl GameManager{
@@ -44,6 +44,15 @@ impl GameManager{
 
     pub fn add_component_to_object(&mut self, entity: hecs::Entity, component: impl hecs::Component){
         self.world.insert_one(entity, component).expect("Error while adding component to entity");
+    }
+
+    pub fn get_component_from_object<'a, T: hecs::ComponentRef<'a>>(&mut self, entity: hecs::Entity) -> Option<hecs::Ref<T>>
+    where T: hecs::Component
+    {
+        match self.world.get::<&T>(entity){
+            Ok(component) => Some(component),
+            _ => None
+        }
     }
 }
 
@@ -104,13 +113,17 @@ impl<T> ApplicationHandler for App<T>
         let mut state = state.borrow_mut();
         state.input(&event);
         state.update(dt);
+        
+        for (id, script) in &mut gm.world.query::<&mut components::Script>(){
+            script.update(dt, &gm.world, &id);
+        }
 
         match event {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                state.render(|renderer| {self.game.on_ui(renderer);});
+                state.render(|game_mananger, renderer| {self.game.on_ui(game_mananger, renderer);}, gm);
                 state.get_window().request_redraw();
             }
             WindowEvent::Resized(size) => {

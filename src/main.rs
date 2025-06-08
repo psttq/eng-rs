@@ -3,67 +3,91 @@ use engine::app::{App, GameManager};
 use engine::app::game::GameHandler;
 use engine::app::game::components;
 use engine::app::renderer::egui_tools::EguiRenderer;
+use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 
-use hecs::World;
-
+use hecs::Entity;
 use winit::{
     event_loop::{ControlFlow, EventLoop},
 };
 
+use crate::engine::app::game::components::ScriptState;
+
 struct Game{
+    player: Option<Entity>
 }
 
 impl Game{
     fn new() -> Self {
-        Self { }
+        Self {player: None}
     }
 }
 
 impl GameHandler for Game{
     fn on_start(&mut self, gm: &mut GameManager) {
         let texture = gm.texture_manager.load_texture("player", "2.png").unwrap();
-        let sprite = components::Sprite::new(texture);
+        let sprite = components::Sprite::new(texture.clone());
         let player = gm.add_object("Player");
         gm.add_component_to_object(player, sprite);
-        gm.add_component_to_object(player, components::Position::new(0.0, 0.0));
+        gm.add_component_to_object(player, components::Transform::new(0.0, 0.0, 30.0));
+
+        let sprite = components::Sprite::new(texture.clone());
+        let player = gm.add_object("Player 3");
+        gm.add_component_to_object(player, sprite);
+        gm.add_component_to_object(player, components::Transform::new(-1.0, 0.0, 0.0));
+
+
+        let texture = gm.texture_manager.load_texture("happy-tree", "happy-tree.png").unwrap();
+        let sprite = components::Sprite::new(texture);
+        let script = components::Script::new("function update(dt)
+    local x, y = gameObject.getPosition()
+    gameObject.setPosition(x + 0.1*dt, y + 0.1*dt)
+end".to_string());
+        let player = gm.add_object("Player 2");
+        gm.add_component_to_object(player, sprite);
+        gm.add_component_to_object(player, script);
+        gm.add_component_to_object(player, components::Transform::new(1.0, 1.0, 0.0));
+        self.player = Some(player);
     }
 
-    fn update(&mut self, gm: &mut GameManager, dt: f32) {
-        
+    fn update(&mut self, _gm: &mut GameManager, _dt: f32) {
+
     }
 
-    fn on_ui(&mut self, egui_renderer: &EguiRenderer) {
-        egui::Window::new("winit + egui + wgpu says hello!")
+    fn on_ui(&mut self, gm: &mut GameManager, egui_renderer: &EguiRenderer) {
+        let player = self.player.unwrap();
+        let mut script = gm.world.get::<&mut components::Script>(player).unwrap();
+       
+        egui::Window::new("Script")
                 .resizable(true)
                 .vscroll(true)
                 .default_open(false)
                 .show(egui_renderer.context(), |ui| {
-                    ui.label("Label!");
-
-                    if ui.button("Button!").clicked() {
-                        println!("boom!")
+                    CodeEditor::default()
+                    .id_source("code editor")
+                    .with_rows(12)
+                    .with_fontsize(14.0)
+                    .with_theme(ColorTheme::GRUVBOX)
+                    .with_syntax(Syntax::lua())
+                    .with_numlines(true)
+                    .show(ui, &mut script.script);
+                match &script.state{
+                    ScriptState::Ok => {},
+                    ScriptState::Err(e) =>{
+                        ui.label(e);
                     }
-
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        ui.label(format!(
-                            "Pixels per point: {}",
-                            egui_renderer.context().pixels_per_point()
-                        ));
-                    });
+                }
                 });
     }
 }
-
 fn main() {
     let game = Game::new();
 
     env_logger::init();
 
     let event_loop = EventLoop::new().unwrap();
-
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app: App<Game> = App::new(game);
+    
     event_loop.run_app(&mut app).unwrap();
 }

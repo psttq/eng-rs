@@ -39,10 +39,10 @@ fn vs_main(
 var t_diffuse: texture_2d<f32>;
 @group(0) @binding(1)
 var s_diffuse: sampler;
+@group(3) @binding(0)
+var<uniform> object_id: u32;
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // return textureSample(t_diffuse, s_diffuse, in.tex_coords);
-    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
-    
+fn fs_main(in: VertexOutput) -> @location(0) vec4<u32> {
+    return vec4<u32>(170u+object_id, 0u, 0u, 255u);
 }
