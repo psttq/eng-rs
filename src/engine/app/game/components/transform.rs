@@ -12,8 +12,8 @@ impl Position{
     }
 }
 
-struct Rotation{
-    angle: f32
+pub struct Rotation{
+    pub angle: f32
 }
 
 impl Rotation{

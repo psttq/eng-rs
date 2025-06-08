@@ -1,4 +1,5 @@
 mod engine;
+use egui::Ui;
 use engine::app::{App, GameManager};
 use engine::app::game::GameHandler;
 use engine::app::game::components;
@@ -10,7 +11,7 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
 };
 
-use crate::engine::app::game::components::ScriptState;
+use crate::engine::app::game::components::{Script, ScriptState, Sprite, TransformComponent};
 
 struct Game{
     player: Option<Entity>
@@ -53,30 +54,8 @@ end".to_string());
 
     }
 
-    fn on_ui(&mut self, gm: &mut GameManager, egui_renderer: &EguiRenderer) {
-        let player = self.player.unwrap();
-        let mut script = gm.world.get::<&mut components::Script>(player).unwrap();
+    fn on_ui(&mut self, gm: &mut GameManager, egui_renderer: &mut EguiRenderer) {
        
-        egui::Window::new("Script")
-                .resizable(true)
-                .vscroll(true)
-                .default_open(false)
-                .show(egui_renderer.context(), |ui| {
-                    CodeEditor::default()
-                    .id_source("code editor")
-                    .with_rows(12)
-                    .with_fontsize(14.0)
-                    .with_theme(ColorTheme::GRUVBOX)
-                    .with_syntax(Syntax::lua())
-                    .with_numlines(true)
-                    .show(ui, &mut script.script);
-                match &script.state{
-                    ScriptState::Ok => {},
-                    ScriptState::Err(e) =>{
-                        ui.label(e);
-                    }
-                }
-                });
     }
 }
 fn main() {

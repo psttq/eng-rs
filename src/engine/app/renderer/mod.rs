@@ -4,6 +4,7 @@ mod render_data;
 mod camera;
 
 use std::{env, sync::Arc};
+use egui_winit::EventResponse;
 use winit::{
     dpi::PhysicalPosition, event::WindowEvent, window::Window
 };
@@ -43,7 +44,7 @@ const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(NUM_INS
 
 pub struct State {
     window: Arc<Window>,
-    device: wgpu::Device,
+    device: Arc<wgpu::Device>,
     queue: wgpu::Queue,
     size: winit::dpi::PhysicalSize<u32>,
     surface: wgpu::Surface<'static>,
@@ -88,6 +89,8 @@ impl State {
             .await
             .unwrap();
 
+        let device = Arc::new(device);
+
         let limits = device.limits();
         println!(
             "Max sampled textures per shader stage: {}",
@@ -100,7 +103,7 @@ impl State {
         let cap = surface.get_capabilities(&adapter);
         let surface_format = cap.formats[0];
 
-        let egui_renderer = EguiRenderer::new(&device, surface_format, None, 1, &window);
+        let egui_renderer = EguiRenderer::new(device.clone(), surface_format, None, 1, &window);
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -488,7 +491,7 @@ impl State {
     }
 
     pub fn render<T>(&mut self, mut egui_render_func: T, gm: &mut GameManager)
-    where T: FnMut(&mut GameManager, &EguiRenderer) -> ()
+    where T: FnMut(&mut GameManager, &mut EguiRenderer) -> ()
     {
         let world = &gm.world;
         let surface_texture = self
@@ -678,7 +681,7 @@ impl State {
         {
             self.egui_renderer.begin_frame(&self.window);
 
-            egui_render_func(gm, &self.egui_renderer);
+            egui_render_func(gm, &mut self.egui_renderer);
 
             let screen_descriptor = ScreenDescriptor {
                 size_in_pixels: [self.size.width, self.size.height],
@@ -703,17 +706,6 @@ impl State {
         self.queue.submit([encoder.finish()]);
         self.window.pre_present_notify();
         surface_texture.present();
-
-        let buffer_slice = self.picking_buffer.slice(..);
-        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device.poll(wgpu::Maintain::Wait);
-        {
-            let data = buffer_slice.get_mapped_range();
-            let pixel = [data[0], data[1], data[2], data[3]];
-            // let pixel: [u8; 4] = data[0..4].try_into().unwrap();
-            println!("{} {} PIXEL: {:?}",x,y, pixel);
-        }
-        self.picking_buffer.unmap();
     }
 
     pub fn load_texture(&self, name: &str, path: &str) -> texture::Texture{
@@ -726,7 +718,25 @@ impl State {
         return texture;
     }
 
-    pub fn input(&mut self, event: &WindowEvent) {
+    pub fn pick(&self) -> u8{
+        let buffer_slice = self.picking_buffer.slice(..);
+        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+        self.device.poll(wgpu::Maintain::Wait);
+        let id: u8;
+        {
+            let data = buffer_slice.get_mapped_range();
+            id = data[0];
+        }
+        self.picking_buffer.unmap();
+        id
+    }
+
+    pub fn input(&mut self, event: &WindowEvent) -> bool{
+        let response = self.egui_renderer
+            .handle_input(&self.window, &event);
+        if response.consumed{
+            return true;
+        }
         match event{
             WindowEvent::CursorMoved { device_id: _, position } => {
                 self.mouse_pos = *position;
@@ -734,8 +744,7 @@ impl State {
             _ => {}
         };
         self.camera_controller.process_events(event);
-        self.egui_renderer
-            .handle_input(&self.window, &event);
+        false
     }
 
     pub fn update(&mut self, dt: f32) {

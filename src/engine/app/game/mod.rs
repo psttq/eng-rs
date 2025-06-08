@@ -5,5 +5,5 @@ pub trait GameHandler
 {
     fn on_start(&mut self, gm: &mut GameManager);
     fn update(&mut self, gm: &mut GameManager, dt: f32);
-    fn on_ui(&mut self, gm: &mut GameManager, egui_renderer: &EguiRenderer);
+    fn on_ui(&mut self, gm: &mut GameManager, egui_renderer: &mut EguiRenderer);
 }

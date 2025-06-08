@@ -1,14 +1,17 @@
-use egui::Context;
+use std::sync::Arc;
+
+use egui::{epaint, Context};
 use egui_wgpu::wgpu::{CommandEncoder, Device, Queue, StoreOp, TextureFormat, TextureView};
 use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
-use egui_winit::State;
+use egui_winit::{EventResponse, State};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
 pub struct EguiRenderer {
     state: State,
-    renderer: Renderer,
+    pub renderer: Renderer,
     frame_started: bool,
+    device: Arc<Device>
 }
 
 impl EguiRenderer {
@@ -17,7 +20,7 @@ impl EguiRenderer {
     }
 
     pub fn new(
-        device: &Device,
+        device: Arc<Device>,
         output_color_format: TextureFormat,
         output_depth_format: Option<TextureFormat>,
         msaa_samples: u32,
@@ -34,7 +37,7 @@ impl EguiRenderer {
             Some(2 * 1024), // default dimension is 2048
         );
         let egui_renderer = Renderer::new(
-            device,
+            &device,
             output_color_format,
             output_depth_format,
             msaa_samples,
@@ -45,11 +48,12 @@ impl EguiRenderer {
             state: egui_state,
             renderer: egui_renderer,
             frame_started: false,
+            device
         }
     }
 
-    pub fn handle_input(&mut self, window: &Window, event: &WindowEvent) {
-        let _ = self.state.on_window_event(window, event);
+    pub fn handle_input(&mut self, window: &Window, event: &WindowEvent) -> EventResponse {
+        self.state.on_window_event(window, event)
     }
 
     pub fn ppp(&mut self, v: f32) {
@@ -60,6 +64,13 @@ impl EguiRenderer {
         let raw_input = self.state.take_egui_input(window);
         self.state.egui_ctx().begin_pass(raw_input);
         self.frame_started = true;
+    }
+
+    pub fn register_texture(&mut self, texture_view: &TextureView) -> epaint::TextureId{
+        self.renderer.register_native_texture(
+                &self.device,
+                &texture_view,
+                wgpu::FilterMode::Nearest)
     }
 
     pub fn end_frame_and_draw(
