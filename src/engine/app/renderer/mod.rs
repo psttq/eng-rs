@@ -151,7 +151,7 @@ impl State {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../../shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../../../resources/shaders/shader.wgsl").into()),
         });
 
 
@@ -370,7 +370,7 @@ impl State {
         
         let picking_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Picking Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../../picking_shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../../../resources/shaders/picking_shader.wgsl").into()),
         });
 
         let picking_pipeline_layout =

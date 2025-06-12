@@ -2,7 +2,7 @@ pub mod renderer;
 pub mod game;
 pub mod texture_manager;
 
-use egui::{Color32, Frame};
+use egui::{Color32, Frame, Key, RichText};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 use game::{components::Label, GameHandler};
 use hecs::{Entity, World};
@@ -11,7 +11,7 @@ use std::{cell::RefCell, fmt::format, rc::Rc, sync::Arc};
 use crate::engine::app::{game::components::{self, Script, TransformComponent}, renderer::egui_tools::EguiRenderer, texture_manager::TextureManager};
 
 use winit::{
-    application::ApplicationHandler, dpi::PhysicalSize, event::{ElementState, MouseButton, WindowEvent}, event_loop::ActiveEventLoop, window::{Window, WindowId}
+    application::ApplicationHandler, dpi::PhysicalSize, event::{ElementState, MouseButton, WindowEvent}, event_loop::ActiveEventLoop, keyboard::{PhysicalKey}, window::{Window, WindowId}
 };
 
 use std::time::{Instant};
@@ -44,6 +44,12 @@ impl GameManager{
     pub fn add_component_to_object(&mut self, entity: hecs::Entity, component: impl hecs::Component){
         self.world.insert_one(entity, component).expect("Error while adding component to entity");
     }
+
+    fn update(&mut self, dt: f32){
+        for (id, script) in &mut self.world.query::<&mut components::Script>(){
+                script.update(dt, &self.world, &id);
+        }
+    }
 }
 
 struct ScriptEditting{
@@ -60,6 +66,8 @@ pub struct App<T>
     game_manager: Option<GameManager>,
     /*Script*/
     script_editting: Option<ScriptEditting>,
+    game_paused: bool,
+    show_debug_window: bool
 }
 
 
@@ -71,7 +79,9 @@ impl<T> App<T>
             game_manager: None,
             last_frame_time: Instant::now(),
             game,
-            script_editting: None
+            script_editting: None,
+            game_paused: true,
+            show_debug_window: false
          }
     }
 
@@ -116,9 +126,10 @@ impl<T> ApplicationHandler for App<T>
         let mut state = state.borrow_mut();
         state.input(&event);
         state.update(dt);
-        
-        for (id, script) in &mut gm.world.query::<&mut components::Script>(){
-            script.update(dt, &gm.world, &id);
+
+
+        if !self.game_paused{
+            gm.update(dt);
         }
 
         match event {
@@ -129,62 +140,74 @@ impl<T> ApplicationHandler for App<T>
                 if button == MouseButton::Left && state_event == ElementState::Pressed{
                     println!("{}", state.pick());
                 }
-            }
+            },
+            WindowEvent::KeyboardInput { device_id: _dt, event, is_synthetic: _ } => {
+                // println!("{:?} {:?}", event.physical_key, event.logical_key);
+                if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::Backquote) && event.state == ElementState::Pressed{
+                    self.show_debug_window = !self.show_debug_window;
+                }
+            },
             WindowEvent::RedrawRequested => {
                 state.render(|game_mananger: &mut GameManager, renderer| {
+                    if self.show_debug_window{
                     egui::Window::new("Objects").frame(
-        Frame::window(&egui::Style::default()).fill(Color32::from_rgba_premultiplied(0, 0, 0, 100))
-    )
-                .resizable(true)
-                .vscroll(true)
-                .default_open(true)
-                .show(&renderer.context().clone(), |ui| {
-                        ui.label(format!("fps: {:.2}", 1.0/dt));
-                        for (id, label) in &mut game_mananger.world.query::<&components::Label>(){
-                            ui.collapsing(format!("id: {}, label: {}", label.id, label.label), |ui|{
-                                let transform = game_mananger.world.get::<&TransformComponent>(id);
-                                match transform{
-                                    Ok(transform) => {
-                                        let mut transform = transform.lock().unwrap();
-                                        ui.collapsing("Transform", |ui|{
-                                            ui.horizontal(|ui|{
-                                                ui.add(egui::Label::new("x: "));
-                                                ui.add(egui::DragValue::new(&mut transform.position.x).speed(0.01));
-                                                ui.add(egui::Label::new("y: "));
-                                                ui.add(egui::DragValue::new(&mut transform.position.y).speed(0.01));
-                                                ui.add(egui::Label::new("rotation: "));
-                                                ui.add(egui::DragValue::new(&mut transform.rotation.angle).speed(0.01));
-                                            });
-                                        });
-                                        
-                                    },
-                                    Err(e) => {}
-                                }
-                                let sprite = game_mananger.world.get::<&components::Sprite>(id);
-                                match sprite{
-                                    Ok(sprite) => {
-                                        ui.collapsing("Sprite", |ui|{
-                                            let texture_id = renderer.register_texture(&sprite.texture.view);
-                                            ui.image((texture_id, egui::vec2(100.0, 100.0)));
-                                        });
-                                    }
-                                    _ => {}
-                                }
+                        Frame::window(&egui::Style::default()).fill(Color32::from_rgba_premultiplied(0, 0, 0, 100))
+                    )
+                    .resizable(true)
+                    .vscroll(true)
+                    .default_open(true)
+                    .show(&renderer.context().clone(), |ui| {
+                            ui.label(format!("fps: {:.2}", 1.0/dt));
+                            
+                            if ui.button(if self.game_paused {"Start"} else {"Stop"}).clicked(){
+                                    self.game_paused = !self.game_paused;
+                            }
 
-                                let script = game_mananger.world.get::<&components::Script>(id);
-                                match script {
-                                    Ok(script)=>{
-                                        ui.collapsing("Script", |ui|{
-                                            if ui.button("Edit").clicked(){
-                                                self.script_editting = Some(ScriptEditting { entity: id, script: script.get_script() });
-                                            }
-                                        });
-                                    },
-                                    _ => {}
-                                }
-                            });
-                        }
-                    });
+                            for (id, label) in &mut game_mananger.world.query::<&components::Label>(){
+                                ui.collapsing(format!("id: {}, label: {}", label.id, label.label), |ui|{
+                                    let transform = game_mananger.world.get::<&TransformComponent>(id);
+                                    match transform{
+                                        Ok(transform) => {
+                                            let mut transform = transform.lock().unwrap();
+                                            ui.collapsing("Transform", |ui|{
+                                                ui.horizontal(|ui|{
+                                                    ui.add(egui::Label::new("x: "));
+                                                    ui.add(egui::DragValue::new(&mut transform.position.x).speed(0.01));
+                                                    ui.add(egui::Label::new("y: "));
+                                                    ui.add(egui::DragValue::new(&mut transform.position.y).speed(0.01));
+                                                    ui.add(egui::Label::new("rotation: "));
+                                                    ui.add(egui::DragValue::new(&mut transform.rotation.angle).speed(0.01));
+                                                });
+                                            });
+                                            
+                                        },
+                                        Err(e) => {}
+                                    }
+                                    let sprite = game_mananger.world.get::<&components::Sprite>(id);
+                                    match sprite{
+                                        Ok(sprite) => {
+                                            ui.collapsing("Sprite", |ui|{
+                                                let texture_id = renderer.register_texture(&sprite.texture.view);
+                                                ui.image((texture_id, egui::vec2(100.0, 100.0)));
+                                            });
+                                        }
+                                        _ => {}
+                                    }
+
+                                    let script = game_mananger.world.get::<&components::Script>(id);
+                                    match script {
+                                        Ok(script)=>{
+                                            ui.collapsing("Script", |ui|{
+                                                if ui.button("Edit").clicked(){
+                                                    self.script_editting = Some(ScriptEditting { entity: id, script: script.get_script() });
+                                                }
+                                            });
+                                        },
+                                        _ => {}
+                                    }
+                                });
+                            }
+                        });
 
                     let mut close_clicked = false;
 
@@ -211,16 +234,20 @@ impl<T> ApplicationHandler for App<T>
                             if ui.button("Save").clicked(){
                                 script.set_script(script_editting.script.clone());
                             }
+
+                            if ui.button("Reload").clicked(){
+                                script.reload();
+                                script_editting.script = script.get_script();
+                            }
+
                             close_clicked = ui.button("Close").clicked();
                             
                             match &script.state{
                                 components::ScriptState::Ok => {},
                                 components::ScriptState::Err(e) =>{
-                                    ui.label(e);
+                                    ui.label(RichText::new(e).color(Color32::RED));
                                 }
                             }
-
-                            
                         });
                         },
                         _ => {}
@@ -230,7 +257,7 @@ impl<T> ApplicationHandler for App<T>
                         self.script_editting = None;
                     }
 
-
+                    }
                     self.game.on_ui(game_mananger, renderer);
                 }, gm);
                 state.get_window().request_redraw();

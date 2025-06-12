@@ -25,7 +25,7 @@ impl Game{
 
 impl GameHandler for Game{
     fn on_start(&mut self, gm: &mut GameManager) {
-        let texture = gm.texture_manager.load_texture("player", "2.png").unwrap();
+        let texture = gm.texture_manager.load_texture("player", "resources/2.png").unwrap();
         let sprite = components::Sprite::new(texture.clone());
         let player = gm.add_object("Player");
         gm.add_component_to_object(player, sprite);
@@ -37,12 +37,9 @@ impl GameHandler for Game{
         gm.add_component_to_object(player, components::Transform::new(-1.0, 0.0, 0.0));
 
 
-        let texture = gm.texture_manager.load_texture("happy-tree", "happy-tree.png").unwrap();
+        let texture = gm.texture_manager.load_texture("happy-tree", "resources/happy-tree.png").unwrap();
         let sprite = components::Sprite::new(texture);
-        let script = components::Script::new("function update(dt)
-    local x, y = gameObject.getPosition()
-    gameObject.setPosition(x + 0.1*dt, y + 0.1*dt)
-end".to_string());
+        let script = components::Script::new("resources/script.lua".to_string());
         let player = gm.add_object("Player 2");
         gm.add_component_to_object(player, sprite);
         gm.add_component_to_object(player, script);

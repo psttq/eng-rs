@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{env, fs, path::PathBuf, sync::Arc};
 
 use mlua::prelude::*;
 use hecs::{Entity, World};
@@ -13,13 +13,26 @@ pub enum ScriptState{
 }
 
 pub struct Script{
+    path: PathBuf,
     script: String,
     pub state: ScriptState,
     pub lua: Arc<Lua>,
 }
 
 impl Script{
-    pub fn new(script: String) -> Self{
+    pub fn new(path: String) -> Self{
+         let exe_path = env::current_exe().unwrap();
+    
+        // Get the directory containing the executable
+        let exe_dir = exe_path.parent()
+            .ok_or_else(|| std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Executable has no parent directory"
+            )).unwrap();
+        
+        // Construct path to your file relative to the executable
+        let file_path = exe_dir.join(path);
+        let script = fs::read_to_string(&file_path).unwrap();
         let lua = Lua::new();
         match lua.load(script.clone()).exec(){
             Ok(()) => {},
@@ -27,17 +40,27 @@ impl Script{
                 error!("{:?}", e);
             }
         }
-        Self { script: script, state: ScriptState::Ok, lua: Arc::new(lua) }
+        Self {path: file_path, script: script, state: ScriptState::Ok, lua: Arc::new(lua) }
+    }
+
+    pub fn reload(&mut self){
+        let script = fs::read_to_string(&self.path).unwrap();
+        self.set_script(script);
     }
 
     pub fn set_script(&mut self, script: String){
         self.script = script.clone();
         match self.lua.load(script.clone()).exec(){
-            Ok(()) => {},
+            Ok(()) => {
+                self.state = ScriptState::Ok;
+            },
             Err(e) => {
                 error!("{:?}", e);
+                self.state = ScriptState::Err(e.to_string());
             }
         }
+
+        fs::write(&self.path, self.script.clone()).unwrap();
     }
 
     pub fn get_script(&self) -> String{
